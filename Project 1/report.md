@@ -1,8 +1,8 @@
 # Minimizing Food Delivery Routes: A Capacitated Vehicle Routing Formulation
 
-**Team:** _[add your names here]_
-**Course:** _[course name / number]_
-**Date:** _[presentation date]_
+**Team Hole Optimization: Omar, Alex, Ratandeep**
+**MAE 494 Design Optimization**
+**Due: September 9th, 2026**
 
 ---
 
