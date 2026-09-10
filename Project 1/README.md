@@ -13,5 +13,4 @@ problem as a Capacitated Vehicle Routing Problem (CVRP).
 ## Running
 
 Open the `.m` file in MATLAB and run it, generates
-its own random instance, solves it, prints the routes, and saves a plot
-(`cvrp_exact_solution.png` / `cvrp_heuristic_solution.png`).
+its own random instance, solves it, prints the routes, and saves a plot. 
