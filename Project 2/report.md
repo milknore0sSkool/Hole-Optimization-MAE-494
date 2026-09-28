@@ -899,17 +899,3 @@ end
 ```
 
 ---
-
-## 10. Suggested repository contents
-
-```text
-README.md or thermocouple_ill_conditioning_report_final.md
-thermocouple_ill_conditioning.m
-synthetic_thermocouple_calibration.csv
-fig_eigenvalue_spectrum.png
-fig_condition_vs_degree.png
-fig_gd_monomial_vs_chebyshev.png
-fig_calibration_comparison.png
-```
-
-Before submission, verify that every figure filename in the Markdown exactly matches the exported MATLAB figure filename and that all GitHub math renders correctly.
