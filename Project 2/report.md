@@ -20,6 +20,8 @@ This project uses a **synthetic thermocouple-inspired dataset** rather than labo
 
 The dataset contains 40 calibration points over a voltage range of 0 to 8 mV. The measured temperature range is approximately $34.64^\circ\mathrm C$ to $185.75^\circ\mathrm C$. Small random measurement errors were included when the dataset was created to mimic calibration scatter.
 
+![Figure 1. Synthetic thermocouple-inspired calibration dataset.](fig01_synthetic_data.jpg)
+
 The main question is:
 
 > **How does increasing polynomial order in a thermocouple calibration model affect numerical conditioning and gradient-descent convergence, and can a Chebyshev basis improve the optimization without changing the underlying polynomial model space?**
@@ -139,6 +141,12 @@ $$
 =\sqrt{\frac1N\sum_{i=1}^{N}(T_i-\hat T_i)^2}.
 $$
 
+For the cubic calibration model, the fitted curve follows the synthetic measurements closely and the residuals remain centered near zero.
+
+![Figure 2. Degree-3 polynomial calibration fit.](fig02_degree3_fit.jpg)
+
+![Figure 3. Degree-3 calibration residuals.](fig03_residuals.jpg)
+
 ### 2.5 Constraints and classification
 
 There are no explicit constraints on the polynomial coefficients. The optimization problem is therefore:
@@ -207,7 +215,7 @@ The measured trend strongly supports this mechanism. The Hessian condition numbe
 To determine whether the large condition number is merely caused by coordinate scale, symmetric Jacobi scaling is applied:
 
 $$
-D=\operatorname{diag}(H),
+D=diag(H),
 $$
 
 $$
@@ -285,11 +293,9 @@ $$
 \boxed{\kappa(H)=8.34\times10^6}.
 $$
 
-The eigenvalue spectrum should be displayed on a logarithmic axis using the MATLAB-generated figure:
+The degree-10 Hessian eigenvalue spectrum is shown below on a logarithmic scale.
 
-```markdown
-![Hessian eigenvalue spectrum](fig_eigenvalue_spectrum.png)
-```
+![Figure 6. Degree-10 Hessian eigenvalue spectrum.](fig06_eigenvalue_spectrum.jpg)
 
 The several-orders-of-magnitude spread in eigenvalues corresponds to a highly elongated objective landscape.
 
@@ -311,13 +317,13 @@ The full conditioning sweep is summarized below.
 | 11 | $4.7474\times10^7$ | $1.7442\times10^7$ | 0.31565 |
 | 12 | $2.7997\times10^8$ | $1.0437\times10^8$ | 0.31498 |
 
-The MATLAB figure should be inserted as:
+The intrinsic-conditioning trend is shown below.
 
-```markdown
-![Condition number versus polynomial degree](fig_condition_vs_degree.png)
-```
+![Figure 4. Hessian condition number versus polynomial degree, before and after diagonal scaling.](fig04_condition_vs_degree.jpg)
 
 The key observation is that fit error improves only modestly while conditioning deteriorates dramatically. From degree 3 to degree 12, RMSE decreases from approximately $0.376^\circ\mathrm C$ to $0.315^\circ\mathrm C$, while the Hessian condition number increases from about $61$ to $2.80\times10^8$.
+
+![Figure 5. Direct least-squares calibration RMSE versus polynomial degree.](fig05_rmse_vs_degree.jpg)
 
 ### 4.3 D3 — Baseline gradient descent
 
@@ -431,19 +437,21 @@ Using the same relative-gradient tolerance of $10^{-6}$ and the optimal fixed st
 | Final GD RMSE ($^\circ\mathrm C$) | 97.8904 | 0.32035 |
 | Direct least-squares RMSE ($^\circ\mathrm C$) | 0.32035 | approximately the same model-space optimum |
 
-The convergence plot should be inserted as
+The baseline-versus-remedy convergence history is shown below.
 
-```markdown
-![Gradient descent: monomial versus Chebyshev](fig_gd_monomial_vs_chebyshev.png)
-```
+![Figure 7. Gradient-descent objective gap for the degree-10 monomial and Chebyshev parameterizations.](fig07_gd_convergence.jpg)
 
-The difference is not caused by increased model flexibility. Both formulations represent the same degree-10 polynomial space. Instead, the Chebyshev basis changes the optimization coordinates so that the Hessian eigenvalues are much more tightly clustered. Gradient descent can then make useful progress in all curvature directions with a single fixed step size.
+Because the Chebyshev method converges in only 38 iterations while the monomial run continues to 100,000 iterations, its entire convergence history is compressed near the left edge of the shared horizontal axis. The difference is not caused by increased model flexibility. Both formulations represent the same degree-10 polynomial space. Instead, the Chebyshev basis changes the optimization coordinates so that the Hessian eigenvalues are much more tightly clustered. Gradient descent can then make useful progress in all curvature directions with a single fixed step size.
 
 ### 5.4 Calibration-fit interpretation
 
 The direct degree-10 monomial least-squares solution has an RMSE of $0.32035^\circ\mathrm C$, demonstrating that the monomial model is capable of fitting the calibration data accurately. The failed gradient-descent result of $97.8904^\circ\mathrm C$ is therefore a **solver-convergence result**, not a statement that the degree-10 monomial polynomial is a poor calibration model.
 
 The Chebyshev formulation reaches the same practical calibration accuracy in only 38 gradient-descent iterations. This cleanly separates **model quality** from **optimization quality**.
+
+![Figure 8. Degree-10 calibration using the final gradient-descent iterates.](fig08_degree10_gd_fit.jpg)
+
+In Figure 8, the orange "Monomial Basis" curve is the **unconverged monomial gradient-descent iterate after 100,000 iterations**, not the direct least-squares monomial solution. The direct monomial solution achieves the same $0.32035^\circ\mathrm C$ RMSE as the converged Chebyshev solution to the displayed precision.
 
 ---
 
