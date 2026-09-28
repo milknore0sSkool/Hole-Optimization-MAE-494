@@ -2,23 +2,29 @@
 
 ## Abstract
 
-This project studies numerical ill-conditioning in a thermocouple-inspired calibration problem. A synthetic dataset of thermocouple voltage and temperature measurements is fit using least-squares polynomial regression. The optimization problem belongs to **Family C: correlated / multiscale features**, because the monomial basis produces a Vandermonde design matrix whose columns become increasingly correlated as polynomial degree increases. The Hessian of the least-squares objective is \(H=X^T X\), so this correlation produces a rapidly growing condition number. The project first diagnoses the problem using the Hessian eigenvalue spectrum, the condition number \(\kappa(H)\), and the required diagonal-rescaling test. It then demonstrates the effect of ill-conditioning on gradient descent. Finally, the same polynomial model space is reparameterized using a Chebyshev basis, which reduces feature correlation and is expected to improve both the Hessian conditioning and gradient-descent convergence.
+This project studies numerical ill-conditioning in a thermocouple-inspired calibration problem. A synthetic dataset containing 40 voltage-temperature calibration points is fit using polynomial least squares. The problem belongs to **Family C: correlated / multiscale features** because the monomial basis produces a Vandermonde design matrix whose columns become increasingly correlated as polynomial degree increases. The least-squares Hessian is
 
-> **Status note.** This report is written before the final MATLAB run. Numerical result fields marked `TODO` should be replaced with the values and figures produced by the included MATLAB code.
+$$
+H=X^T X,
+$$
+
+so this loss of independence between columns produces a rapidly increasing condition number. The condition number increased from approximately $13.1$ at degree 2 to $2.80\times 10^8$ at degree 12. Diagonal Jacobi scaling did not eliminate the problem; at degree 12 the scaled condition number remained $1.04\times10^8$, demonstrating intrinsic rather than trivial scale-based ill-conditioning. For a degree-10 model, the monomial Hessian had $\kappa=8.34\times10^6$, while an equivalent Chebyshev basis reduced the condition number to $5.47$. With the same relative-gradient tolerance of $10^{-6}$, monomial-basis gradient descent failed to converge within 100,000 iterations, whereas the Chebyshev formulation converged in 38 iterations. These results show that the calibration model can remain accurate while its numerical parameterization becomes extremely difficult to optimize.
 
 ---
 
 ## 1. Problem Identification and Motivation
 
-Thermocouples are widely used for temperature measurement in mechanical and thermal experiments. The sensor produces a voltage that must be related to temperature through a calibration relationship. In an experimental setting, calibration data contain measurement noise and uncertainty, so a fitted model is often used to estimate temperature from measured voltage.
+Thermocouples are commonly used to measure temperature in mechanical and thermal experiments. The sensor produces a voltage that must be related to temperature through calibration. In experimental work, the measured calibration points contain scatter and uncertainty, so a fitted mathematical relationship is often used to convert measured voltage into temperature.
 
-This project uses a **synthetic thermocouple-inspired calibration dataset** so that numerical conditioning can be studied without introducing uncontrolled experimental effects. The dataset contains 40 calibration points over a voltage range of 0 to 8 mV. A smooth nonlinear temperature response is used, and a small amount of measurement noise is added to represent calibration scatter.
+This project uses a **synthetic thermocouple-inspired dataset** rather than laboratory data. The synthetic dataset gives a controlled test environment: the same calibration points can be used for every optimization experiment, and numerical conditioning can be studied without introducing missing measurements, sensor drift, or other uncontrolled laboratory effects.
 
-The central question is:
+The dataset contains 40 calibration points over a voltage range of 0 to 8 mV. The measured temperature range is approximately $34.64^\circ\mathrm C$ to $185.75^\circ\mathrm C$. Small random measurement errors were included when the dataset was created to mimic calibration scatter.
+
+The main question is:
 
 > **How does increasing polynomial order in a thermocouple calibration model affect numerical conditioning and gradient-descent convergence, and can a Chebyshev basis improve the optimization without changing the underlying polynomial model space?**
 
-This distinction is important in experimental mechanics. Measurement error and numerical ill-conditioning are not the same phenomenon. Measurement error describes uncertainty or scatter in the observed data, while numerical ill-conditioning describes sensitivity and poor curvature geometry in the optimization problem itself. This project focuses on the second issue.
+This question separates two ideas that are important in experimental mechanics. **Measurement error** describes scatter or uncertainty in the data, while **numerical ill-conditioning** describes poor geometry in the optimization problem. A calibration model may fit the data accurately but still be very difficult for an iterative optimizer to solve.
 
 ---
 
@@ -26,68 +32,70 @@ This distinction is important in experimental mechanics. Measurement error and n
 
 ### 2.1 Calibration data
 
-For each calibration point \(i=1,\ldots,N\), the dataset contains
+For each calibration point $i=1,\ldots,N$, the dataset contains
 
-\[
+$$
 (V_i,T_i),
-\]
+$$
 
 where
 
-- \(V_i\) is thermocouple voltage in mV,
-- \(T_i\) is the measured calibration temperature in \(^\circ\mathrm C\),
-- \(N=40\) is the number of calibration points.
+- $V_i$ is thermocouple voltage in mV,
+- $T_i$ is the measured calibration temperature in $^\circ\mathrm C$,
+- $N=40$ is the number of calibration points.
 
-To remove a trivial units/scale issue, voltage is normalized before polynomial fitting:
+Voltage is normalized before polynomial fitting:
 
-\[
+$$
 z_i=\frac{V_i-V_{\mathrm{mid}}}{(V_{\max}-V_{\min})/2}.
-\]
+$$
 
 For the 0 to 8 mV range,
 
-\[
+$$
 V_{\mathrm{mid}}=4\ \mathrm{mV},
-\]
+$$
 
 so
 
-\[
+$$
 z_i=\frac{V_i-4}{4},
 \qquad -1\le z_i\le 1.
-\]
+$$
+
+Normalizing voltage removes a simple unit-scale explanation for poor conditioning before the intrinsic-conditioning test is performed.
 
 ### 2.2 Decision variables
 
-A degree-\(d\) polynomial calibration model in the monomial basis is
+A degree-$d$ polynomial calibration model in the monomial basis is
 
-\[
+$$
 \hat T(z)=a_0+a_1z+a_2z^2+\cdots+a_dz^d.
-\]
+$$
 
 The decision vector is
 
-\[
+$$
 \mathbf a=
 \begin{bmatrix}
 a_0 & a_1 & \cdots & a_d
 \end{bmatrix}^T
 \in\mathbb R^{d+1}.
-\]
+$$
 
-Because \(z\) is dimensionless, each coefficient contributes to a prediction measured in \(^\circ\mathrm C\).
+The decision variables are continuous polynomial coefficients. Since $z$ is dimensionless, each term contributes to a temperature prediction in $^\circ\mathrm C$.
 
 ### 2.3 Design matrix
 
-The polynomial model can be written in matrix form as
+The model can be written as
 
-\[
+$$
 \hat{\mathbf T}=X\mathbf a,
-\]
+$$
 
-where the monomial/Vandermonde design matrix is
+where
 
-\[
+$$
 X=
 \begin{bmatrix}
 1 & z_1 & z_1^2 & \cdots & z_1^d\\
@@ -95,52 +103,52 @@ X=
 \vdots & \vdots & \vdots & & \vdots\\
 1 & z_N & z_N^2 & \cdots & z_N^d
 \end{bmatrix}.
-\]
+$$
 
 ### 2.4 Objective function
 
-The polynomial coefficients are found by least squares:
+The coefficients are obtained by minimizing the least-squares objective
 
-\[
+$$
 \boxed{
 \min_{\mathbf a\in\mathbb R^{d+1}}
-\;f(\mathbf a)
+f(\mathbf a)
 =\frac12\|X\mathbf a-\mathbf T\|_2^2
 }
-\]
+$$
 
 where
 
-\[
+$$
 \mathbf T=
 \begin{bmatrix}
 T_1&T_2&\cdots&T_N
 \end{bmatrix}^T.
-\]
+$$
 
 The residual vector is
 
-\[
+$$
 \mathbf r=\mathbf T-X\mathbf a.
-\]
+$$
 
-Calibration accuracy is also summarized using root-mean-square error,
+Calibration accuracy is summarized by
 
-\[
+$$
 \mathrm{RMSE}
 =\sqrt{\frac1N\sum_{i=1}^{N}(T_i-\hat T_i)^2}.
-\]
+$$
 
 ### 2.5 Constraints and classification
 
-There are no explicit constraints on the polynomial coefficients. Therefore, the problem is:
+There are no explicit constraints on the polynomial coefficients. The optimization problem is therefore:
 
 - continuous,
 - unconstrained,
 - smooth,
 - convex,
 - quadratic in the decision variables,
-- a linear least-squares optimization problem.
+- linear least squares.
 
 ---
 
@@ -150,96 +158,110 @@ There are no explicit constraints on the polynomial coefficients. Therefore, the
 
 This problem belongs to **Family C: correlated / multiscale features**.
 
-The gradient of the least-squares objective is
+The gradient is
 
-\[
+$$
 \nabla f(\mathbf a)=X^T(X\mathbf a-\mathbf T),
-\]
+$$
 
 and the Hessian is
 
-\[
+$$
 \boxed{H=X^T X}.
-\]
+$$
 
-The condition number of the Hessian is
+The Hessian condition number is
 
-\[
+$$
 \boxed{
 \kappa(H)=\frac{\lambda_{\max}(H)}{\lambda_{\min}(H)}
-}
-\]
+}.
+$$
 
-for the positive-definite cases considered here.
+As polynomial degree increases, the monomial columns
 
-As polynomial degree increases, the columns
+$$
+1,\ z,\ z^2,\ z^3,\ldots,z^d
+$$
 
-\[
-1,\;z,\;z^2,\;z^3,\ldots,z^d
-\]
+become increasingly correlated over the finite interval $[-1,1]$. This makes the Vandermonde design matrix increasingly close to rank deficient. Because $H=X^TX$, small singular values of $X$ become small Hessian eigenvalues. The resulting spread between $\lambda_{\min}$ and $\lambda_{\max}$ produces a large condition number and a narrow optimization valley.
 
-become increasingly correlated over the finite interval \([-1,1]\). High powers of \(z\) can become nearly linearly dependent, which causes one or more singular values of \(X\) to become small. Since
+### 3.2 Structural knob: polynomial degree
 
-\[
-H=X^T X,
-\]
+The calibration dataset is held fixed while polynomial degree is increased from 2 through 12. This gives a controlled structural knob:
 
-the Hessian eigenvalues are related to the squared singular values of \(X\). Small singular values therefore create very small Hessian eigenvalues and a large condition number.
+$$
+d\uparrow
+\Rightarrow
+\text{basis correlation}\uparrow
+\Rightarrow
+\lambda_{\min}(H)\downarrow
+\Rightarrow
+\kappa(H)\uparrow.
+$$
 
-### 3.2 Structural knob
+The measured trend strongly supports this mechanism. The Hessian condition number grew from $13.1$ at degree 2 to approximately $2.80\times10^8$ at degree 12.
 
-The structural knob used in this project is the polynomial degree \(d\). The dataset is held fixed while the degree is increased:
+### 3.3 Intrinsic-$\kappa$ test
 
-\[
-d=2,3,\ldots,12.
-\]
+To determine whether the large condition number is merely caused by coordinate scale, symmetric Jacobi scaling is applied:
 
-The expected mechanism is
+$$
+D=\operatorname{diag}(H),
+$$
 
-\[
- d\uparrow
- \quad\Rightarrow\quad
- \text{feature correlation}\uparrow
- \quad\Rightarrow\quad
- \lambda_{\min}(H)\downarrow
- \quad\Rightarrow\quad
- \kappa(H)\uparrow.
-\]
-
-### 3.3 Intrinsic-conditioning test
-
-The required diagonal/Jacobi scaling test uses
-
-\[
-D=\operatorname{diag}(H)
-\]
-
-and
-
-\[
+$$
 \boxed{
 H_s=D^{-1/2}HD^{-1/2}.
 }
-\]
+$$
 
-If the large condition number were caused only by coordinate scale or units, diagonal rescaling would reduce \(\kappa\) to approximately order one. For this project, the ill-conditioning should remain large after this rescaling because the underlying problem is correlation between basis functions, not merely different coordinate magnitudes.
+If the problem were only a units mismatch, this diagonal scaling would reduce the condition number to order one. That did not occur. At degree 10,
+
+$$
+\kappa(H)=8.34\times10^6,
+$$
+
+while the scaled matrix still had
+
+$$
+\kappa(H_s)=3.04\times10^6.
+$$
+
+At degree 12, the values were approximately
+
+$$
+\kappa(H)=2.80\times10^8,
+\qquad
+\kappa(H_s)=1.04\times10^8.
+$$
+
+Therefore, diagonal scaling reduces the magnitude somewhat but does **not** cure the problem. The ill-conditioning survives because it is caused primarily by correlation between basis directions, satisfying the intrinsic-conditioning requirement.
 
 ### 3.4 Small-case verification
 
-For a low-order case, the code verifies the condition number two ways:
+For the cubic model, MATLAB produced
 
-\[
-\kappa_{\mathrm{eig}}
-=\frac{\lambda_{\max}}{\lambda_{\min}}
-\]
+$$
+\lambda_{\min}=0.7432358,
+\qquad
+\lambda_{\max}=45.37672.
+$$
 
-and MATLAB's
+Thus,
 
-```matlab
-cond(H)
-```
+$$
+\frac{\lambda_{\max}}{\lambda_{\min}}
+=61.05293.
+$$
 
-These values should agree to numerical precision for the symmetric positive-definite Hessian.
+MATLAB's `cond(H)` also returned
+
+$$
+\kappa(H)=61.05293,
+$$
+
+confirming the condition-number calculation independently.
 
 ---
 
@@ -247,101 +269,104 @@ These values should agree to numerical precision for the symmetric positive-defi
 
 ### 4.1 D1 — Hessian spectrum and condition number
 
-A representative high-order case, chosen here as degree \(d=10\), is used to plot the Hessian eigenvalues on a logarithmic scale.
+The degree-10 monomial model is used as a representative ill-conditioned case. Its Hessian has approximately
 
-The final results should report:
+$$
+\lambda_{\min}=6.28\times10^{-6},
+$$
 
-| Quantity | Result |
-|---|---:|
-| Polynomial degree | 10 |
-| \(\lambda_{\min}(H)\) | TODO |
-| \(\lambda_{\max}(H)\) | TODO |
-| \(\kappa(H)\) | TODO |
+$$
+\lambda_{\max}=52.43,
+$$
 
+which gives
+
+$$
+\boxed{\kappa(H)=8.34\times10^6}.
+$$
+
+The eigenvalue spectrum should be displayed on a logarithmic axis using the MATLAB-generated figure:
+
+```markdown
 ![Hessian eigenvalue spectrum](fig_eigenvalue_spectrum.png)
+```
 
-A large spread between the smallest and largest eigenvalues indicates an elongated objective-function valley and therefore poor conditioning.
+The several-orders-of-magnitude spread in eigenvalues corresponds to a highly elongated objective landscape.
 
 ### 4.2 D2 — Condition number versus polynomial degree
 
-The condition number is computed for each polynomial degree while the calibration dataset is held constant. The original Hessian and diagonally rescaled Hessian are plotted together.
+The full conditioning sweep is summarized below.
 
-![Condition number versus polynomial degree](fig_condition_vs_degree.png)
-
-The expected result is that \(\kappa(H)\) increases rapidly with polynomial degree. If the scaled condition number also remains large, the intrinsic-conditioning requirement is satisfied.
-
-Use the MATLAB output to complete the following representative table:
-
-| Degree | \(\kappa(H)\) | \(\kappa(H_s)\) | RMSE (\(^\circ\mathrm C\)) |
+| Degree | $\kappa(H)$ | $\kappa(H_s)$ | Direct least-squares RMSE ($^\circ\mathrm C$) |
 |---:|---:|---:|---:|
-| 2 | TODO | TODO | TODO |
-| 4 | TODO | TODO | TODO |
-| 6 | TODO | TODO | TODO |
-| 8 | TODO | TODO | TODO |
-| 10 | TODO | TODO | TODO |
-| 12 | TODO | TODO | TODO |
+| 2 | 13.124 | 6.8637 | 0.88867 |
+| 3 | 61.053 | 23.067 | 0.37613 |
+| 4 | 318.89 | 122.32 | 0.35835 |
+| 5 | 1,628.6 | 579.72 | 0.33781 |
+| 6 | 8,843.8 | 3,191.3 | 0.33778 |
+| 7 | 47,214 | 16,681 | 0.33770 |
+| 8 | $2.6366\times10^5$ | 94,538 | 0.33281 |
+| 9 | $1.4550\times10^6$ | $5.2153\times10^5$ | 0.32561 |
+| 10 | $8.3428\times10^6$ | $3.0350\times10^6$ | 0.32035 |
+| 11 | $4.7474\times10^7$ | $1.7442\times10^7$ | 0.31565 |
+| 12 | $2.7997\times10^8$ | $1.0437\times10^8$ | 0.31498 |
+
+The MATLAB figure should be inserted as:
+
+```markdown
+![Condition number versus polynomial degree](fig_condition_vs_degree.png)
+```
+
+The key observation is that fit error improves only modestly while conditioning deteriorates dramatically. From degree 3 to degree 12, RMSE decreases from approximately $0.376^\circ\mathrm C$ to $0.315^\circ\mathrm C$, while the Hessian condition number increases from about $61$ to $2.80\times10^8$.
 
 ### 4.3 D3 — Baseline gradient descent
 
 Gradient descent is used as the baseline first-order optimizer:
 
-\[
-\boxed{
+$$
 \mathbf a_{k+1}
-=\mathbf a_k-\alpha\nabla f(\mathbf a_k)
-}
-\]
+=\mathbf a_k-\alpha\nabla f(\mathbf a_k).
+$$
 
-with
+For the quadratic least-squares problem, the fixed step size is selected as
 
-\[
-\nabla f(\mathbf a_k)=X^T(X\mathbf a_k-\mathbf T).
-\]
-
-For a strongly convex quadratic, the fixed step size is selected as
-
-\[
+$$
 \boxed{
 \alpha=\frac{2}{L+\mu}
 }
-\]
+$$
 
-where
+with
 
-\[
+$$
 L=\lambda_{\max}(H),
 \qquad
 \mu=\lambda_{\min}(H).
-\]
+$$
 
-This choice avoids artificially making gradient descent slow through a poor step-size selection.
+The stopping criterion is
 
-The convergence metric is the objective gap
-
-\[
-\boxed{f(\mathbf a_k)-f^*}
-\]
-
-shown on a semilogarithmic axis. The stopping criterion is based on the relative gradient norm,
-
-\[
+$$
 \frac{\|\nabla f(\mathbf a_k)\|_2}
 {\|\nabla f(\mathbf a_0)\|_2}
-\le 10^{-8}.
-\]
+\le10^{-6}.
+$$
 
-A low-order and high-order monomial fit are compared to demonstrate the effect of increasing \(\kappa\).
+The convergence history plots the objective gap $f(\mathbf a_k)-f^*$ on a semilog axis.
 
-![Gradient descent: low degree versus high degree](fig_gd_degree_effect.png)
+For the degree-10 monomial problem, gradient descent reached the imposed limit of **100,000 iterations without satisfying the tolerance**. Its final calibration RMSE was still
 
-Report the observed iteration counts:
+$$
+97.8904^\circ\mathrm C.
+$$
 
-| Monomial model | Iterations to tolerance |
-|---|---:|
-| Degree 3 | TODO |
-| Degree 10 | TODO or `maxIter reached` |
+This poor RMSE should not be interpreted as a limitation of the degree-10 polynomial itself. Solving the **same monomial least-squares model directly** gives an RMSE of only
 
-If the degree-10 case reaches the maximum iteration count before satisfying the tolerance, that is reported directly rather than treated as a coding failure.
+$$
+0.32035^\circ\mathrm C.
+$$
+
+Therefore, the degree-10 model is capable of fitting the data well; gradient descent simply cannot reach that optimum efficiently in the badly conditioned monomial coordinates.
 
 ---
 
@@ -349,170 +374,161 @@ If the degree-10 case reaches the maximum iteration count before satisfying the 
 
 ### 5.1 Chebyshev reparameterization
 
-The ill-conditioning mechanism is caused by strong correlation among the monomial basis functions. Therefore, the remedy is to represent the same degree-\(d\) polynomial space using a basis that is closer to orthogonal over \([-1,1]\).
+The identified mechanism is strong correlation among monomial basis functions. The remedy is therefore to represent the same polynomial model space using Chebyshev polynomials, which provide much better separated basis directions on $[-1,1]$.
 
-The Chebyshev basis is defined recursively by
+The basis is defined by
 
-\[
+$$
 T_0(z)=1,
-\]
+$$
 
-\[
+$$
 T_1(z)=z,
-\]
+$$
 
 and
 
-\[
+$$
 T_n(z)=2zT_{n-1}(z)-T_{n-2}(z).
-\]
+$$
 
 The calibration model becomes
 
-\[
+$$
 \hat T(z)
 =c_0T_0(z)+c_1T_1(z)+\cdots+c_dT_d(z).
-\]
+$$
 
-The Chebyshev design matrix is
-
-\[
-X_C=
-\begin{bmatrix}
-T_0(z_1)&T_1(z_1)&\cdots&T_d(z_1)\\
-T_0(z_2)&T_1(z_2)&\cdots&T_d(z_2)\\
-\vdots&\vdots&&\vdots\\
-T_0(z_N)&T_1(z_N)&\cdots&T_d(z_N)
-\end{bmatrix},
-\]
-
-with Hessian
-
-\[
-H_C=X_C^T X_C.
-\]
-
-This is a **reparameterization**, not a different physical calibration problem. Both the monomial and Chebyshev formulations span the same degree-\(d\) polynomial space. The purpose is to improve the coordinates used by the optimizer.
+This is a **reparameterization**, not a change in physical model class. A degree-$d$ polynomial in a Chebyshev basis spans the same degree-$d$ polynomial space as a degree-$d$ polynomial in the monomial basis.
 
 ### 5.2 D4 — Before/after conditioning
 
-For the same degree-10 calibration problem, compare
+For degree 10, the measured condition numbers are
 
-\[
-\kappa(H_{\mathrm{mono}})
-\]
-
-and
-
-\[
-\kappa(H_{\mathrm{Cheb}}).
-\]
-
-| Formulation | Condition number |
+| Formulation | $\kappa(H)$ |
 |---|---:|
-| Monomial basis | TODO |
-| Chebyshev basis | TODO |
+| Monomial basis | $8.34285\times10^6$ |
+| Chebyshev basis | $5.47280$ |
 
-The expected result is a substantial reduction in condition number because the Chebyshev columns are much less correlated over \([-1,1]\).
+The condition number therefore decreases by approximately
+
+$$
+\frac{8.34285\times10^6}{5.47280}
+\approx1.52\times10^6.
+$$
+
+In other words, the reparameterization improves the Hessian condition number by roughly **1.5 million times** for this degree-10 calibration problem.
 
 ### 5.3 D4 — Before/after convergence
 
-Gradient descent is then rerun using the same convergence tolerance and the optimal fixed step size for each Hessian.
-
-![Gradient descent: monomial versus Chebyshev](fig_gd_monomial_vs_chebyshev.png)
-
-Report the final comparison:
+Using the same relative-gradient tolerance of $10^{-6}$ and the optimal fixed step for each Hessian gives:
 
 | Metric | Monomial basis | Chebyshev basis |
 |---|---:|---:|
 | Polynomial degree | 10 | 10 |
-| \(\kappa(H)\) | TODO | TODO |
-| GD iterations | TODO | TODO |
-| Calibration RMSE (\(^\circ\mathrm C\)) | TODO | TODO |
+| $\kappa(H)$ | $8.34285\times10^6$ | 5.47280 |
+| Gradient-descent iterations | 100,000 limit reached | 38 |
+| Final GD RMSE ($^\circ\mathrm C$) | 97.8904 | 0.32035 |
+| Direct least-squares RMSE ($^\circ\mathrm C$) | 0.32035 | approximately the same model-space optimum |
 
-The important comparison is that the calibration accuracy should remain similar because both formulations describe the same polynomial model space, while the condition number and optimization convergence can differ dramatically.
+The convergence plot should be inserted as
 
-### 5.4 Calibration fit comparison
+```markdown
+![Gradient descent: monomial versus Chebyshev](fig_gd_monomial_vs_chebyshev.png)
+```
 
-![Degree-10 calibration comparison](fig_calibration_comparison.png)
+The difference is not caused by increased model flexibility. Both formulations represent the same degree-10 polynomial space. Instead, the Chebyshev basis changes the optimization coordinates so that the Hessian eigenvalues are much more tightly clustered. Gradient descent can then make useful progress in all curvature directions with a single fixed step size.
 
-If both curves visually overlap while their condition numbers and iteration counts differ, this supports the conclusion that the improvement comes from numerical formulation rather than changing the physical calibration model.
+### 5.4 Calibration-fit interpretation
+
+The direct degree-10 monomial least-squares solution has an RMSE of $0.32035^\circ\mathrm C$, demonstrating that the monomial model is capable of fitting the calibration data accurately. The failed gradient-descent result of $97.8904^\circ\mathrm C$ is therefore a **solver-convergence result**, not a statement that the degree-10 monomial polynomial is a poor calibration model.
+
+The Chebyshev formulation reaches the same practical calibration accuracy in only 38 gradient-descent iterations. This cleanly separates **model quality** from **optimization quality**.
 
 ---
 
 ## 6. Assumptions and Simplifications
 
-The following assumptions are used:
-
-1. **Synthetic calibration data.** The dataset is thermocouple-inspired rather than a manufacturer-specific thermocouple standard curve. This isolates the optimization behavior from uncontrolled experimental effects.
-2. **Fixed dataset.** The same 40 calibration points are used for every polynomial degree so that polynomial degree is the primary structural knob.
-3. **Normalized voltage.** Voltage is mapped to \([-1,1]\) before fitting. This intentionally removes a trivial unit-scale source of ill-conditioning.
-4. **Independent measurement noise.** The synthetic calibration scatter is treated as independent measurement error and is not intended to represent every real thermocouple uncertainty source.
-5. **Unweighted least squares.** All calibration points receive equal weight. A real experiment might use weighted least squares if uncertainty varies with temperature.
-6. **No extrapolation study.** The project evaluates fitting and conditioning over the calibration interval only.
-7. **No model-order selection claim.** High-order polynomials are used as a controlled mechanism for studying conditioning. The project does not claim that degree 10 or 12 is the preferred physical thermocouple calibration order.
-8. **Gradient descent is a diagnostic baseline.** A direct least-squares solver is more efficient for this small problem, but gradient descent is used intentionally to demonstrate the effect of Hessian conditioning.
+1. **Synthetic thermocouple-inspired data.** The dataset is not a manufacturer-specific thermocouple standard curve. It is used to isolate numerical-conditioning behavior in a controlled calibration example.
+2. **Fixed dataset.** The same 40 points are used for every polynomial degree so degree is the primary structural knob.
+3. **Normalized voltage.** Voltage is mapped to $[-1,1]$ before fitting to remove trivial unit-scale effects.
+4. **Independent synthetic measurement scatter.** The dataset includes small random errors, but it is not intended to reproduce every real thermocouple uncertainty source.
+5. **Unweighted least squares.** Every calibration point receives equal weight.
+6. **No extrapolation analysis.** Results are interpreted only over the calibration interval.
+7. **No claim that high polynomial order is physically optimal.** Degrees up to 12 are used to expose the conditioning mechanism, not to recommend a real thermocouple calibration standard.
+8. **Gradient descent is intentionally diagnostic.** For a small linear least-squares problem, MATLAB's direct solver is more appropriate computationally. Gradient descent is used here because its convergence strongly exposes the effect of Hessian conditioning.
+9. **Finite iteration cap.** Gradient descent is limited to 100,000 iterations. Failure to reach the specified tolerance within this limit is reported as nonconvergence within the computational budget.
 
 ---
 
 ## 7. Discussion
 
-The key distinction in this project is between **fit quality** and **optimization quality**. Increasing polynomial degree can leave RMSE nearly unchanged or even reduce it slightly while simultaneously making the Hessian much more ill-conditioned. Therefore, calibration accuracy alone does not reveal whether the optimization problem is numerically well formulated.
+The results show a strong separation between **calibration accuracy** and **numerical optimization difficulty**. Increasing degree from 3 to 12 reduces the direct least-squares RMSE by only about $0.061^\circ\mathrm C$, from $0.376^\circ\mathrm C$ to $0.315^\circ\mathrm C$. Over the same change, the Hessian condition number increases from approximately $61$ to $2.80\times10^8$.
 
-The monomial formulation is expected to become difficult because the basis functions become strongly correlated. This produces a Hessian with eigenvalues spanning many orders of magnitude. Gradient descent must use a step size small enough to remain stable in the largest-curvature direction, which causes very slow progress along the smallest-curvature direction.
+This means that a small improvement in fit quality can come with an enormous numerical penalty when the monomial basis is used. The result is particularly relevant to calibration problems because examining residuals alone may suggest that a high-order model is acceptable, even while the associated optimization problem becomes extremely poorly conditioned.
 
-The Chebyshev basis directly addresses this mechanism. Rather than adding regularization or changing the calibration data, it changes the coordinates used to represent the polynomial. A large reduction in \(\kappa\) together with faster convergence and similar RMSE would demonstrate that the original difficulty was largely a basis-conditioning problem.
+The diagonal-rescaling test confirms that this is not just a units problem. At degree 12, Jacobi scaling still leaves $\kappa\approx1.04\times10^8$. The source is therefore the geometry of the basis itself: high-order monomial columns become nearly linearly dependent.
 
-`TODO after MATLAB run:` summarize the observed numerical trends here using the actual condition numbers and iteration counts.
+The gradient-descent experiment demonstrates the practical consequence. At degree 10, the direct monomial least-squares solution achieves $0.32035^\circ\mathrm C$ RMSE, so the model has sufficient expressive capability. However, monomial-basis gradient descent is still far from that solution after 100,000 iterations and has a final RMSE of $97.89^\circ\mathrm C$. This failure is consistent with the extremely large condition number $8.34\times10^6$.
+
+The Chebyshev basis directly addresses the identified mechanism rather than changing the data or adding a different objective. It reduces the degree-10 condition number to only $5.47$ and reaches the gradient tolerance in 38 iterations. The approximately $1.52\times10^6$-fold condition-number reduction provides strong before/after evidence that the original difficulty was a basis-conditioning problem.
 
 ---
 
 ## 8. Conclusion
 
-This project formulates thermocouple calibration as a polynomial least-squares optimization problem and studies its numerical conditioning. The problem belongs to Family C because the monomial design matrix develops strongly correlated columns as polynomial degree increases. The Hessian \(H=X^TX\) therefore becomes increasingly ill-conditioned.
+This project formulated thermocouple calibration as a polynomial least-squares optimization problem and investigated how polynomial parameterization affects numerical conditioning. The problem was classified as **Family C: correlated / multiscale features** because increasingly correlated monomial columns make the Vandermonde design matrix nearly rank deficient as polynomial degree increases.
 
-The final MATLAB results will be used to verify four claims:
+The required diagnostics produced four main results:
 
-1. The Hessian eigenvalue spectrum becomes increasingly spread as polynomial degree increases.
-2. The condition number grows with polynomial degree and remains large after diagonal rescaling, demonstrating intrinsic rather than trivial unit-based ill-conditioning.
-3. Gradient descent slows significantly as the condition number increases.
-4. Reparameterizing the same polynomial space with a Chebyshev basis substantially reduces the condition number and improves gradient-descent convergence without materially changing calibration accuracy.
+1. **D1 — Spectrum and condition number.** For the degree-10 monomial model, the Hessian eigenvalues ranged from approximately $6.28\times10^{-6}$ to $52.43$, producing $\kappa(H)=8.34\times10^6$.
+2. **D2 — Intrinsic conditioning.** The condition number grew from $13.1$ at degree 2 to $2.80\times10^8$ at degree 12. Diagonal scaling did not cure the problem; the degree-12 scaled condition number remained $1.04\times10^8$.
+3. **D3 — Optimization effect.** Degree-10 monomial gradient descent failed to satisfy the $10^{-6}$ relative-gradient tolerance within 100,000 iterations even though the direct least-squares solution fits the same data with $0.32035^\circ\mathrm C$ RMSE.
+4. **D4 — Remedy.** Changing to a Chebyshev basis reduced the degree-10 condition number from $8.34\times10^6$ to $5.47$ and reduced gradient-descent convergence from more than 100,000 iterations to 38 iterations.
 
-`TODO after MATLAB run:` replace this paragraph with a concise numerical conclusion using the final values of \(\kappa\), iteration counts, and RMSE.
+The main conclusion is that **the mathematical model can be accurate while its coordinates are numerically poor**. For polynomial calibration, changing from a monomial basis to a Chebyshev basis preserves the underlying polynomial model space while dramatically improving the geometry seen by the optimizer.
 
 ---
 
 ## 9. Reproducibility
 
-### 9.1 Files
-
 Place the following files in the same MATLAB working directory:
 
 ```text
 synthetic_thermocouple_calibration.csv
-project2_thermocouple.m
+thermocouple_ill_conditioning.m
 ```
 
-The CSV file is the fixed synthetic dataset used for all reported results. Keeping the exact dataset in the public repository ensures that another user can reproduce the reported values.
+Run:
 
-### 9.2 MATLAB code
+```matlab
+thermocouple_ill_conditioning
+```
 
-Save the following as `project2_thermocouple.m`.
+The CSV contains the fixed synthetic dataset used for all reported results. The MATLAB script performs the degree sweep, Hessian and eigenvalue analysis, diagonal-scaling test, gradient-descent experiment, Chebyshev reformulation, and final comparison.
+
+### MATLAB code
 
 ```matlab
 %% Project 2 - Ill-Conditioning in Thermocouple Calibration
+% Family C: Correlated / multiscale features
+% Synthetic thermocouple-inspired polynomial calibration
+%
+% Baseline formulation: monomial polynomial basis
+% Remedy: Chebyshev polynomial basis
+
 clear;
 clc;
 close all;
 
-%% 1. Import data
+%% 1. Import synthetic thermocouple calibration data
 
 data = readtable('synthetic_thermocouple_calibration.csv');
 
-V = data.Voltage_mV;
-z = data.z_normalized;
-T_true = data.T_true_C;
-T_meas = data.T_measured_C;
+V = data.Voltage_mV;        % Thermocouple voltage [mV]
+z = data.z_normalized;      % Normalized voltage [-1,1]
+T_true = data.T_true_C;     % Noise-free synthetic temperature [deg C]
+T_meas = data.T_measured_C; % Synthetic measured temperature [deg C]
 
 N = length(V);
 
@@ -524,7 +540,7 @@ fprintf('Voltage range: %.2f to %.2f mV\n', min(V), max(V));
 fprintf('Measured temperature range: %.2f to %.2f deg C\n\n', ...
     min(T_meas), max(T_meas));
 
-%% 2. Synthetic calibration data
+%% 2. Plot synthetic calibration data
 
 figure;
 plot(V, T_true, 'LineWidth', 1.5);
@@ -535,30 +551,37 @@ ylabel('Temperature (^oC)');
 title('Synthetic Thermocouple Calibration Data');
 legend('True Response', 'Synthetic Measurements', 'Location', 'best');
 grid on;
-exportgraphics(gcf, 'fig_synthetic_data.png', 'Resolution', 300);
 
-%% 3. Low-order calibration and small-case verification
+%% 3. Initial low-order polynomial calibration
 
 d = 3;
 X = buildMonomialMatrix(z, d);
+
 a = X \ T_meas;
 T_fit = X * a;
 residuals = T_meas - T_fit;
 RMSE = sqrt(mean(residuals.^2));
 
-H = X' * X;
-lambda = sort(eig((H + H')/2));
-lambda_min = min(lambda);
-lambda_max = max(lambda);
-kappa_eigenvalues = lambda_max / lambda_min;
-kappa_matlab = cond(H);
+fprintf('---------------------------------------------\n');
+fprintf('DEGREE-%d CALIBRATION\n', d);
+fprintf('---------------------------------------------\n');
+fprintf('Polynomial coefficients:\n');
+disp(a);
+fprintf('RMSE = %.6f deg C\n\n', RMSE);
 
-fprintf('---------------------------------------------\n');
-fprintf('DEGREE-%d SMALL-CASE CHECK\n', d);
-fprintf('---------------------------------------------\n');
-fprintf('RMSE = %.6f deg C\n', RMSE);
-fprintf('Kappa from eigenvalues = %.6e\n', kappa_eigenvalues);
-fprintf('Kappa from cond(H)      = %.6e\n\n', kappa_matlab);
+%% 4. Plot degree-3 calibration fit
+
+figure;
+scatter(V, T_meas, 35, 'filled');
+hold on;
+plot(V, T_fit, 'LineWidth', 1.5);
+xlabel('Thermocouple Voltage (mV)');
+ylabel('Temperature (^oC)');
+title('Degree-3 Polynomial Calibration');
+legend('Synthetic Measurements', 'Polynomial Fit', 'Location', 'best');
+grid on;
+
+%% 5. Plot calibration residuals
 
 figure;
 scatter(V, residuals, 35, 'filled');
@@ -568,9 +591,27 @@ xlabel('Thermocouple Voltage (mV)');
 ylabel('Residual (^oC)');
 title('Degree-3 Calibration Residuals');
 grid on;
-exportgraphics(gcf, 'fig_residuals_degree3.png', 'Resolution', 300);
 
-%% 4. D2 - Degree sweep and diagonal rescaling
+%% 6. D1 - Hessian and conditioning for degree-3 problem
+
+H = X' * X;
+lambda = sort(eig(H));
+
+lambda_min = min(lambda);
+lambda_max = max(lambda);
+
+kappa_eigenvalues = lambda_max / lambda_min;
+kappa_matlab = cond(H);
+
+fprintf('---------------------------------------------\n');
+fprintf('DEGREE-%d HESSIAN ANALYSIS\n', d);
+fprintf('---------------------------------------------\n');
+fprintf('Minimum eigenvalue       = %.6e\n', lambda_min);
+fprintf('Maximum eigenvalue       = %.6e\n', lambda_max);
+fprintf('Kappa from eigenvalues   = %.6e\n', kappa_eigenvalues);
+fprintf('Kappa from cond(H)        = %.6e\n\n', kappa_matlab);
+
+%% 7. D2 - Sweep polynomial degree and test intrinsic conditioning
 
 degrees = 2:12;
 numDegrees = length(degrees);
@@ -581,20 +622,27 @@ RMSE_degree = zeros(numDegrees,1);
 
 for i = 1:numDegrees
     d_i = degrees(i);
+
     X_i = buildMonomialMatrix(z, d_i);
     H_i = X_i' * X_i;
 
     kappa_monomial(i) = cond(H_i);
 
-    dH = diag(H_i);
-    D_inv_sqrt = diag(1 ./ sqrt(dH));
+    % Symmetric Jacobi / diagonal scaling
+    D = diag(diag(H_i));
+    D_inv_sqrt = diag(1 ./ sqrt(diag(D)));
     H_scaled = D_inv_sqrt * H_i * D_inv_sqrt;
+
     kappa_scaled(i) = cond(H_scaled);
 
+    % Calibration accuracy
     a_i = X_i \ T_meas;
     T_fit_i = X_i * a_i;
-    RMSE_degree(i) = sqrt(mean((T_meas - T_fit_i).^2));
+    residual_i = T_meas - T_fit_i;
+    RMSE_degree(i) = sqrt(mean(residual_i.^2));
 end
+
+%% 8. Plot condition number versus polynomial degree
 
 figure;
 semilogy(degrees, kappa_monomial, '-o', 'LineWidth', 1.5, 'MarkerSize', 7);
@@ -605,20 +653,36 @@ ylabel('Condition Number, \kappa(H)');
 title('Ill-Conditioning vs. Polynomial Degree');
 legend('Original Hessian', 'After Diagonal Scaling', 'Location', 'northwest');
 grid on;
-exportgraphics(gcf, 'fig_condition_vs_degree.png', 'Resolution', 300);
 
-conditioningTable = table(degrees', kappa_monomial, kappa_scaled, RMSE_degree, ...
-    'VariableNames', {'Degree','Kappa_Monomial','Kappa_Scaled','RMSE_degC'});
+%% 9. Calibration RMSE versus polynomial degree
 
+figure;
+plot(degrees, RMSE_degree, '-o', 'LineWidth', 1.5, 'MarkerSize', 7);
+xlabel('Polynomial Degree');
+ylabel('Calibration RMSE (^oC)');
+title('Calibration Error vs. Polynomial Degree');
+grid on;
+
+%% 10. Conditioning results table
+
+conditioningTable = table( ...
+    degrees', ...
+    kappa_monomial, ...
+    kappa_scaled, ...
+    RMSE_degree, ...
+    'VariableNames', ...
+    {'Degree','Kappa_Monomial','Kappa_Scaled','RMSE_degC'});
+
+disp(' ');
 disp('CONDITIONING RESULTS');
 disp(conditioningTable);
 
-%% 5. D1 - Hessian spectrum for representative ill-conditioned case
+%% 11. D1 - Hessian eigenvalue spectrum for an ill-conditioned case
 
 d_bad = 10;
 X_bad = buildMonomialMatrix(z, d_bad);
 H_bad = X_bad' * X_bad;
-lambda_bad = sort(eig((H_bad + H_bad')/2), 'descend');
+lambda_bad = sort(eig(H_bad), 'descend');
 
 figure;
 semilogy(1:length(lambda_bad), lambda_bad, 'o-', 'LineWidth', 1.5, 'MarkerSize', 7);
@@ -626,91 +690,78 @@ xlabel('Eigenvalue Index');
 ylabel('Hessian Eigenvalue');
 title(sprintf('Hessian Eigenvalue Spectrum: Degree %d', d_bad));
 grid on;
-exportgraphics(gcf, 'fig_eigenvalue_spectrum.png', 'Resolution', 300);
 
-fprintf('Degree-%d kappa(H) = %.6e\n\n', d_bad, cond(H_bad));
-
-%% 6. D3 - Effect of degree on baseline gradient descent
-
-maxIter = 100000;
-tol = 1e-8;
-
-% Low-order case
-X_low = buildMonomialMatrix(z, 3);
-H_low = X_low' * X_low;
-ev_low = eig((H_low + H_low')/2);
-mu_low = min(ev_low);
-L_low = max(ev_low);
-alpha_low = 2 / (L_low + mu_low);
-a0_low = zeros(4,1);
-
-[~, history_low, iterations_low] = ...
-    gradientDescentLS(X_low, T_meas, a0_low, alpha_low, maxIter, tol);
-
-% High-order case
-X_high = buildMonomialMatrix(z, 10);
-H_high = X_high' * X_high;
-ev_high = eig((H_high + H_high')/2);
-mu_high = min(ev_high);
-L_high = max(ev_high);
-alpha_high = 2 / (L_high + mu_high);
-a0_high = zeros(11,1);
-
-[a_GD, history_high, iterations_high] = ...
-    gradientDescentLS(X_high, T_meas, a0_high, alpha_high, maxIter, tol);
-
-figure;
-semilogy(0:length(history_low)-1, history_low, 'LineWidth', 1.5);
-hold on;
-semilogy(0:length(history_high)-1, history_high, 'LineWidth', 1.5);
-xlabel('Gradient Descent Iteration');
-ylabel('Objective Gap, f(a_k)-f^*');
-title('Effect of Polynomial Degree on Gradient Descent');
-legend('Degree 3', 'Degree 10', 'Location', 'best');
-grid on;
-exportgraphics(gcf, 'fig_gd_degree_effect.png', 'Resolution', 300);
-
-fprintf('---------------------------------------------\n');
-fprintf('BASELINE GRADIENT DESCENT\n');
-fprintf('---------------------------------------------\n');
-fprintf('Degree 3 iterations  = %d\n', iterations_low);
-fprintf('Degree 10 iterations = %d\n\n', iterations_high);
-
-%% 7. D4 - Chebyshev remedy for degree 10
+%% 12. D3 - Baseline gradient descent using monomial basis
 
 d_GD = 10;
-X_mono = X_high;
-H_mono = H_high;
+
+X_GD = buildMonomialMatrix(z, d_GD);
+H_GD = X_GD' * X_GD;
+
+lambda_GD = eig(H_GD);
+lambda_min_GD = min(lambda_GD);
+lambda_max_GD = max(lambda_GD);
+
+% Optimal fixed step size for an SPD quadratic
+alpha_GD = 2 / (lambda_max_GD + lambda_min_GD);
+
+a0 = zeros(d_GD + 1, 1);
+maxIter = 100000;
+tol = 1e-6;
+
+[a_GD, history_mono, iterations_mono] = ...
+    gradientDescentLS(X_GD, T_meas, a0, alpha_GD, maxIter, tol);
+
+%% 13. D4 - Chebyshev basis remedy
 
 X_cheb = buildChebyshevMatrix(z, d_GD);
 H_cheb = X_cheb' * X_cheb;
-
-kappa_mono = cond(H_mono);
 kappa_cheb = cond(H_cheb);
 
-ev_cheb = eig((H_cheb + H_cheb')/2);
-mu_cheb = min(ev_cheb);
-L_cheb = max(ev_cheb);
-alpha_cheb = 2 / (L_cheb + mu_cheb);
+fprintf('---------------------------------------------\n');
+fprintf('MONOMIAL VS CHEBYSHEV CONDITIONING\n');
+fprintf('---------------------------------------------\n');
+fprintf('Polynomial degree: %d\n', d_GD);
+fprintf('Monomial condition number   = %.6e\n', cond(H_GD));
+fprintf('Chebyshev condition number  = %.6e\n\n', kappa_cheb);
+
+%% 14. Gradient descent using Chebyshev basis
+
+lambda_cheb = eig(H_cheb);
+lambda_min_cheb = min(lambda_cheb);
+lambda_max_cheb = max(lambda_cheb);
+
+alpha_cheb = 2 / (lambda_max_cheb + lambda_min_cheb);
 
 c0 = zeros(d_GD + 1, 1);
+
 [c_GD, history_cheb, iterations_cheb] = ...
     gradientDescentLS(X_cheb, T_meas, c0, alpha_cheb, maxIter, tol);
 
+%% 15. D4 - Compare gradient-descent convergence
+
 figure;
-semilogy(0:length(history_high)-1, history_high, 'LineWidth', 1.5);
+semilogy(0:length(history_mono)-1, history_mono, 'LineWidth', 1.5);
 hold on;
 semilogy(0:length(history_cheb)-1, history_cheb, 'LineWidth', 1.5);
 xlabel('Gradient Descent Iteration');
-ylabel('Objective Gap, f(x_k)-f^*');
-title(sprintf('Degree-%d Gradient Descent: Monomial vs. Chebyshev', d_GD));
+ylabel('Objective Gap, f(x_k) - f^*');
+title(sprintf('Gradient Descent Convergence: Degree %d', d_GD));
 legend('Monomial Basis', 'Chebyshev Basis', 'Location', 'best');
 grid on;
-exportgraphics(gcf, 'fig_gd_monomial_vs_chebyshev.png', 'Resolution', 300);
 
-%% 8. Final calibration comparison
+%% 16. Compare iteration counts
 
-T_fit_mono = X_mono * a_GD;
+fprintf('---------------------------------------------\n');
+fprintf('GRADIENT DESCENT COMPARISON\n');
+fprintf('---------------------------------------------\n');
+fprintf('Tolerance = %.1e relative initial gradient norm\n', tol);
+fprintf('Monomial iterations  = %d\n', iterations_mono);
+fprintf('Chebyshev iterations = %d\n\n', iterations_cheb);
+
+%% 17. Compare final calibration curves and RMSE
+
+T_fit_mono = X_GD * a_GD;
 T_fit_cheb = X_cheb * c_GD;
 
 RMSE_mono = sqrt(mean((T_meas - T_fit_mono).^2));
@@ -726,39 +777,55 @@ ylabel('Temperature (^oC)');
 title(sprintf('Degree-%d Thermocouple Calibration', d_GD));
 legend('Synthetic Measurements', 'Monomial Basis', 'Chebyshev Basis', 'Location', 'best');
 grid on;
-exportgraphics(gcf, 'fig_calibration_comparison.png', 'Resolution', 300);
 
-fprintf('---------------------------------------------\n');
-fprintf('FINAL COMPARISON\n');
-fprintf('---------------------------------------------\n');
-fprintf('Monomial condition number   = %.6e\n', kappa_mono);
-fprintf('Chebyshev condition number  = %.6e\n', kappa_cheb);
-fprintf('Monomial GD iterations      = %d\n', iterations_high);
-fprintf('Chebyshev GD iterations     = %d\n', iterations_cheb);
-fprintf('Monomial RMSE               = %.6f deg C\n', RMSE_mono);
-fprintf('Chebyshev RMSE              = %.6f deg C\n', RMSE_cheb);
+fprintf('Final monomial RMSE   = %.6f deg C\n', RMSE_mono);
+fprintf('Final Chebyshev RMSE  = %.6f deg C\n', RMSE_cheb);
 
-summaryTable = table(kappa_mono, kappa_cheb, iterations_high, iterations_cheb, ...
-    RMSE_mono, RMSE_cheb, ...
-    'VariableNames', {'Kappa_Monomial','Kappa_Chebyshev', ...
-    'Iterations_Monomial','Iterations_Chebyshev', ...
-    'RMSE_Monomial','RMSE_Chebyshev'});
+%% 18. Final summary table
 
+summaryTable = table( ...
+    cond(H_GD), ...
+    cond(H_cheb), ...
+    iterations_mono, ...
+    iterations_cheb, ...
+    RMSE_mono, ...
+    RMSE_cheb, ...
+    'VariableNames', ...
+    {'Kappa_Monomial', ...
+     'Kappa_Chebyshev', ...
+     'Iterations_Monomial', ...
+     'Iterations_Chebyshev', ...
+     'RMSE_Monomial', ...
+     'RMSE_Chebyshev'});
+
+disp(' ');
+disp('FINAL COMPARISON');
 disp(summaryTable);
 
-%% Local functions
+%% ================================================================
+% LOCAL FUNCTIONS
+% ================================================================
 
 function X = buildMonomialMatrix(z, d)
+%BUILDMONOMIALMATRIX Build X = [1 z z^2 ... z^d].
+
     N = length(z);
     X = zeros(N, d + 1);
+
     for j = 0:d
         X(:, j + 1) = z.^j;
     end
 end
 
 function X = buildChebyshevMatrix(z, d)
+%BUILDCHEBYSHEVMATRIX Build Chebyshev design matrix using recurrence.
+% T0(z) = 1
+% T1(z) = z
+% Tn(z) = 2*z*T_(n-1)(z) - T_(n-2)(z)
+
     N = length(z);
     X = zeros(N, d + 1);
+
     X(:,1) = 1;
 
     if d >= 1
@@ -772,14 +839,23 @@ end
 
 function [x, history, iterations] = ...
     gradientDescentLS(X, y, x0, alpha, maxIter, tol)
+%GRADIENTDESCENTLS Gradient descent for
+%   f(x) = 1/2 ||X*x - y||^2
+%
+% Stops when
+%   ||grad f(x_k)|| <= tol * ||grad f(x_0)||
+%
+% history stores the requested diagnostic quantity
+%   f(x_k) - f^*.
 
     x = x0;
 
-    % Direct solution is used only to define f* for the convergence plot.
+    % Direct least-squares optimum used only as a reference
     x_star = X \ y;
     residual_star = X*x_star - y;
     f_star = 0.5 * (residual_star' * residual_star);
 
+    % Reference gradient norm for relative stopping criterion
     residual0 = X*x0 - y;
     gradient0 = X' * residual0;
     grad_ref = norm(gradient0);
@@ -795,14 +871,18 @@ function [x, history, iterations] = ...
         f = 0.5 * (residual' * residual);
         gradient = X' * residual;
 
-        history(k + 1) = max(f - f_star, eps);
+        % D3 convergence metric
+        objectiveGap = max(f - f_star, eps);
+        history(k + 1) = objectiveGap;
 
+        % Relative-gradient stopping condition
         if norm(gradient) <= tol * grad_ref
             iterations = k;
             history = history(1:k+1);
             return;
         end
 
+        % Gradient descent update
         x = x - alpha * gradient;
     end
 
@@ -812,17 +892,16 @@ end
 
 ---
 
-## 10. Final Checklist Before Submission
+## 10. Suggested repository contents
 
-- [ ] Run the MATLAB script from a clean folder containing the CSV.
-- [ ] Confirm the small-case eigenvalue ratio agrees with `cond(H)`.
-- [ ] Replace all `TODO` values with actual MATLAB results.
-- [ ] Confirm `fig_condition_vs_degree.png` demonstrates growth in \(\kappa\).
-- [ ] Confirm diagonal scaling does **not** collapse \(\kappa\) to order one.
-- [ ] Confirm the degree-10 Hessian spectrum spans a large range.
-- [ ] Report whether degree-10 monomial GD converges or reaches `maxIter`.
-- [ ] Compare the degree-10 monomial and Chebyshev condition numbers.
-- [ ] Compare monomial and Chebyshev gradient-descent iteration counts.
-- [ ] Confirm their RMSE values are similar enough to support the same-model-space argument.
-- [ ] Add the CSV, MATLAB script, Markdown report, and generated PNG figures to the public GitHub repository.
-- [ ] Verify all equations and images render correctly on GitHub.
+```text
+README.md or thermocouple_ill_conditioning_report_final.md
+thermocouple_ill_conditioning.m
+synthetic_thermocouple_calibration.csv
+fig_eigenvalue_spectrum.png
+fig_condition_vs_degree.png
+fig_gd_monomial_vs_chebyshev.png
+fig_calibration_comparison.png
+```
+
+Before submission, verify that every figure filename in the Markdown exactly matches the exported MATLAB figure filename and that all GitHub math renders correctly.
