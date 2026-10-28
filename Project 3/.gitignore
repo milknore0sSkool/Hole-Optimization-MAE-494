@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+
+# Generated experiment artifacts
+models/
+data/*.npz
+data/*.mat
+results/prediction_*.npz
+results/reference_eval_*.npz
