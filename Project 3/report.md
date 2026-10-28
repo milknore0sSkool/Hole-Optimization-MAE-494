@@ -4,9 +4,9 @@
 
 This project studies the failure of a physics-informed neural network (PINN) on a convection-dominated nonlinear partial differential equation and tests a targeted optimization remedy. The minimal case is the one-dimensional viscous Burgers equation,
 
-$$
+```math
 u_t + u u_x - \nu u_{xx}=0
-$$
+```
 
 with viscosity $\nu$ used as the difficulty parameter. Decreasing viscosity sharpens the internal solution layer and makes the PINN increasingly difficult to train. A semi-implicit finite-volume method is used as the conventional baseline and numerical reference. The baseline PINN is trained with Adam, while the proposed Path C remedy keeps the architecture, training points, seed, and loss weights fixed and adds an L-BFGS refinement stage after Adam.
 
@@ -69,31 +69,30 @@ This problem brief was **not reviewed by a researcher**. That missing validation
 
 The one-dimensional viscous Burgers equation is
 
-$$
-\boxed{
- u_t + u u_x - \nu u_{xx}=0
-}
-$$
+```math
+\frac{\partial u}{\partial t}
++ u\frac{\partial u}{\partial x}
+- \nu\frac{\partial^2 u}{\partial x^2}
+=0
+```
 
 on the space-time domain
 
-$$
- x\in[-1,1],
- \qquad
- t\in[0,1].
-$$
+```math
+x\in[-1,1], \qquad t\in[0,1].
+```
 
 The initial condition is
 
-$$
- u(x,0)=-\sin(\pi x),
-$$
+```math
+u(x,0)=-\sin(\pi x).
+```
 
 and the boundary conditions are
 
-$$
- u(-1,t)=u(1,t)=0.
-$$
+```math
+u(-1,t)=u(1,t)=0.
+```
 
 ### 3.2 Difficulty parameter
 
@@ -105,73 +104,75 @@ Viscosity is the controlled difficulty parameter:
 | Intermediate | $0.01$ | nonlinear steepening becomes stronger |
 | Hard | $0.01/\pi\approx 0.003183$ | a sharp internal layer develops |
 
+This one-dimensional case is intentionally simpler than a full CFD application: it removes complex geometry, multidimensional flow, and turbulence. It preserves the feature that matters for this study, however—the competition between nonlinear steepening and diffusion. As viscosity decreases, that competition creates an increasingly thin internal layer with stronger high-frequency content. The simplification therefore removes unrelated complexity without removing the targeted PINN failure mechanism.
+
 Thus,
 
-$$
+```math
 \nu\downarrow
-\quad\Rightarrow\quad
-\text{internal layer thickness}\downarrow
-\quad\Rightarrow\quad
-\text{spatial frequency content}\uparrow
-\quad\Rightarrow\quad
-\text{PINN training difficulty}\uparrow.
-$$
+\;\Longrightarrow\;
+\text{thinner internal layer}
+\;\Longrightarrow\;
+\text{higher spatial-frequency content}
+\;\Longrightarrow\;
+\text{harder PINN training}.
+```
 
 ### 3.3 PINN approximation
 
 A fully connected tanh neural network takes $(x,t)$ as input and returns
 
-$$
- u_\theta(x,t),
-$$
+```math
+u_\theta(x,t)
+```
 
 where $\theta$ contains all trainable weights and biases. Automatic differentiation is used to compute
 
-$$
-(u_\theta)_t,
+```math
+\frac{\partial u_\theta}{\partial t},
 \qquad
-(u_\theta)_x,
+\frac{\partial u_\theta}{\partial x},
 \qquad
-(u_\theta)_{xx}.
-$$
+\frac{\partial^2 u_\theta}{\partial x^2}.
+```
 
 The physics residual is
 
-$$
- f_\theta(x,t)
- =
- (u_\theta)_t
- +u_\theta (u_\theta)_x
- -\nu (u_\theta)_{xx}.
-$$
+```math
+f_\theta(x,t)
+=
+\frac{\partial u_\theta}{\partial t}
++u_\theta\frac{\partial u_\theta}{\partial x}
+-\nu\frac{\partial^2 u_\theta}{\partial x^2}.
+```
 
 The loss contains separate PDE, initial-condition, and boundary-condition terms:
 
-$$
-\mathcal L(\theta)
+```math
+\mathcal{L}(\theta)
 =
-\mathcal L_{PDE}
-+10\mathcal L_{IC}
-+\mathcal L_{BC}.
-$$
+\mathcal{L}_{\mathrm{PDE}}
++10\mathcal{L}_{\mathrm{IC}}
++\mathcal{L}_{\mathrm{BC}}.
+```
 
 The PDE term is
 
-$$
-\mathcal L_{PDE}
+```math
+\mathcal{L}_{\mathrm{PDE}}
 =
 \frac{1}{N_f}\sum_{i=1}^{N_f}
-|f_\theta(x_i,t_i)|^2,
-$$
+\left|f_\theta(x_i,t_i)\right|^2.
+```
 
 and the initial-condition term is
 
-$$
-\mathcal L_{IC}
+```math
+\mathcal{L}_{\mathrm{IC}}
 =
 \frac{1}{N_0}\sum_{i=1}^{N_0}
-|u_\theta(x_i,0)+\sin(\pi x_i)|^2.
-$$
+\left|u_\theta(x_i,0)+\sin(\pi x_i)\right|^2.
+```
 
 The boundary term penalizes the two homogeneous Dirichlet boundaries.
 
@@ -210,14 +211,12 @@ The experiment compares four methods or diagnostics:
 
 The main solution-error metric is the relative $L_2$ error
 
-$$
-\boxed{
-E_{rel}
+```math
+E_{\mathrm{rel}}
 =
-\frac{\|u_{pred}-u_{ref}\|_2}
-{\|u_{ref}\|_2}
-}.
-$$
+\frac{\left\|u_{\mathrm{pred}}-u_{\mathrm{ref}}\right\|_2}
+{\left\|u_{\mathrm{ref}}\right\|_2}.
+```
 
 The high-resolution finite-volume solution uses 1025 spatial points. A 257-point finite-volume solution is used as the lower-cost conventional baseline, and all PINN solutions are evaluated on the same 257-by-101 space-time grid.
 
@@ -293,13 +292,7 @@ To separate these explanations, the **same network architecture** is trained dir
 
 The supervised network is not a replacement solver because it is given reference solution values. Its purpose is diagnostic. Since the same architecture reaches $5.57\%$ error when directly supervised, the network has substantially more representational capacity than the physics-informed optimization is exploiting.
 
-This result supports the diagnosis
-
-$$
-\boxed{
-\text{PINN failure is substantially optimization-limited.}
-}
-$$
+This result supports the diagnosis that **PINN failure is substantially optimization-limited**.
 
 At the same time, the supervised result is not exact, and the L-BFGS PINN remains much worse than the supervised fit. This indicates that sharp-gradient representation and spectral effects remain relevant in the hard case.
 
@@ -372,22 +365,22 @@ This fix directly targets the diagnosed optimization limitation rather than incr
 
 At the hardest viscosity,
 
-$$
-E_{Adam}=0.4254,
-$$
+```math
+E_{\mathrm{Adam}}=0.4254.
+```
 
 while
 
-$$
-E_{Adam+L\text{-}BFGS}=0.2859.
-$$
+```math
+E_{\mathrm{Adam+L\text{-}BFGS}}=0.2859.
+```
 
 The relative error reduction is
 
-$$
+```math
 \frac{0.4254-0.2859}{0.4254}\times100\%
 \approx32.8\%.
-$$
+```
 
 The fix is therefore effective but incomplete. A stronger follow-up would target the remaining sharp-feature error with methods such as Fourier features, adaptive sampling, domain decomposition, or adaptive loss weighting.
 
