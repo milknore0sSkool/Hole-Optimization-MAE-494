@@ -1,0 +1,23 @@
+{
+  "python": "3.13.5",
+  "torch": "2.10.0+cpu",
+  "device": "CPU",
+  "processor": "",
+  "threads_used": 4,
+  "seed": 0,
+  "config": {
+    "adam_epochs": 500,
+    "n_collocation": 700,
+    "n_ic": 256,
+    "n_bc": 256,
+    "learning_rate": 0.001,
+    "lbfgs_max_iter": 120,
+    "seed": 0,
+    "width": 48,
+    "depth": 3,
+    "w_pde": 1.0,
+    "w_ic": 10.0,
+    "w_bc": 1.0,
+    "log_every": 25
+  }
+}
